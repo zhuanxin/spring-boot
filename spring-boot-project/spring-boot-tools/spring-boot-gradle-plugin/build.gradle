@@ -1,6 +1,9 @@
 buildscript {
 	repositories {
 		mavenLocal()
+		maven {
+			url 'http://maven.aliyun.com/nexus/content/groups/public/'
+		}
 		mavenCentral()
 	}
 	dependencies {
@@ -17,6 +20,9 @@ apply plugin: 'io.spring.javaformat'
 
 repositories {
 	mavenLocal()
+	maven {
+		url 'http://maven.aliyun.com/nexus/content/groups/public/'
+	}
 	mavenCentral()
 }
 

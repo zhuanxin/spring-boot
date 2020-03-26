@@ -20,7 +20,7 @@ import org.springframework.util.ClassUtils;
 
 /**
  * An enumeration of possible types of web application.
- *
+ * web应用类型
  * @author Andy Wilkinson
  * @author Brian Clozel
  * @since 2.0.0
@@ -30,18 +30,24 @@ public enum WebApplicationType {
 	/**
 	 * The application should not run as a web application and should not start an
 	 * embedded web server.
+	 *
+	 * 非内嵌的web应用
 	 */
 	NONE,
 
 	/**
 	 * The application should run as a servlet-based web application and should start an
 	 * embedded servlet web server.
+	 *
+	 * 内嵌的 servlet web 应用，eg:spring mvc
 	 */
 	SERVLET,
 
 	/**
 	 * The application should run as a reactive web application and should start an
 	 * embedded reactive web server.
+	 *
+	 * 内嵌的 Reactive Web 应用。例如说，Spring Webflux 。
 	 */
 	REACTIVE;
 
@@ -58,9 +64,13 @@ public enum WebApplicationType {
 
 	private static final String REACTIVE_APPLICATION_CONTEXT_CLASS = "org.springframework.boot.web.reactive.context.ReactiveWebApplicationContext";
 
+	/**
+	 * 从classpath 推断 web类型
+	 * @return
+	 */
 	static WebApplicationType deduceFromClasspath() {
 		if (ClassUtils.isPresent(WEBFLUX_INDICATOR_CLASS, null) && !ClassUtils.isPresent(WEBMVC_INDICATOR_CLASS, null)
-				&& !ClassUtils.isPresent(JERSEY_INDICATOR_CLASS, null)) {
+				&& !ClassUtils.isPresent(JERSEY_INDICATOR_CLASS, null)) {//
 			return WebApplicationType.REACTIVE;
 		}
 		for (String className : SERVLET_INDICATOR_CLASSES) {
@@ -68,6 +78,7 @@ public enum WebApplicationType {
 				return WebApplicationType.NONE;
 			}
 		}
+		// WebApplicationType.SERVLET 类型。引入 Spring MVC 时，如果是内嵌的 Web 应用，会引入 Servlet 类。
 		return WebApplicationType.SERVLET;
 	}
 
