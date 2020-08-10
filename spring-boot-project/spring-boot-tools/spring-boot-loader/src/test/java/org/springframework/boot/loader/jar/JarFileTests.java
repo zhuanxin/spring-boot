@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
@@ -47,6 +49,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import org.springframework.boot.loader.TestJarCreator;
 import org.springframework.boot.loader.data.RandomAccessDataFile;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.FileCopyUtils;
 import org.springframework.util.StreamUtils;
 
@@ -62,6 +65,7 @@ import static org.mockito.Mockito.verify;
  * @author Phillip Webb
  * @author Martin Lau
  * @author Andy Wilkinson
+ * @author Madhura Bhave
  */
 @ExtendWith(JarUrlProtocolHandler.class)
 class JarFileTests {
@@ -214,10 +218,10 @@ class JarFileTests {
 		URL url = this.jarFile.getUrl();
 		assertThat(url.toString()).isEqualTo("jar:" + this.rootJarFile.toURI() + "!/");
 		JarURLConnection jarURLConnection = (JarURLConnection) url.openConnection();
-		assertThat(jarURLConnection.getJarFile()).isSameAs(this.jarFile);
+		assertThat(jarURLConnection.getJarFile().getParent()).isSameAs(this.jarFile);
 		assertThat(jarURLConnection.getJarEntry()).isNull();
 		assertThat(jarURLConnection.getContentLength()).isGreaterThan(1);
-		assertThat(jarURLConnection.getContent()).isSameAs(this.jarFile);
+		assertThat(((JarFile) jarURLConnection.getContent()).getParent()).isSameAs(this.jarFile);
 		assertThat(jarURLConnection.getContentType()).isEqualTo("x-java/jar");
 		assertThat(jarURLConnection.getJarFileURL().toURI()).isEqualTo(this.rootJarFile.toURI());
 	}
@@ -227,7 +231,7 @@ class JarFileTests {
 		URL url = new URL(this.jarFile.getUrl(), "1.dat");
 		assertThat(url.toString()).isEqualTo("jar:" + this.rootJarFile.toURI() + "!/1.dat");
 		JarURLConnection jarURLConnection = (JarURLConnection) url.openConnection();
-		assertThat(jarURLConnection.getJarFile()).isSameAs(this.jarFile);
+		assertThat(jarURLConnection.getJarFile().getParent()).isSameAs(this.jarFile);
 		assertThat(jarURLConnection.getJarEntry()).isSameAs(this.jarFile.getJarEntry("1.dat"));
 		assertThat(jarURLConnection.getContentLength()).isEqualTo(1);
 		assertThat(jarURLConnection.getContent()).isInstanceOf(InputStream.class);
@@ -281,7 +285,7 @@ class JarFileTests {
 			URL url = nestedJarFile.getUrl();
 			assertThat(url.toString()).isEqualTo("jar:" + this.rootJarFile.toURI() + "!/nested.jar!/");
 			JarURLConnection conn = (JarURLConnection) url.openConnection();
-			assertThat(conn.getJarFile()).isSameAs(nestedJarFile);
+			assertThat(conn.getJarFile().getParent()).isSameAs(nestedJarFile);
 			assertThat(conn.getJarFileURL().toString()).isEqualTo("jar:" + this.rootJarFile.toURI() + "!/nested.jar");
 			assertThat(conn.getInputStream()).isNotNull();
 			JarInputStream jarInputStream = new JarInputStream(conn.getInputStream());
@@ -310,7 +314,7 @@ class JarFileTests {
 
 			URL url = nestedJarFile.getUrl();
 			assertThat(url.toString()).isEqualTo("jar:" + this.rootJarFile.toURI() + "!/d!/");
-			assertThat(((JarURLConnection) url.openConnection()).getJarFile()).isSameAs(nestedJarFile);
+			assertThat(((JarURLConnection) url.openConnection()).getJarFile().getParent()).isSameAs(nestedJarFile);
 		}
 	}
 
@@ -576,6 +580,27 @@ class JarFileTests {
 		}
 		jarOutput.close();
 		return bytes.toByteArray();
+	}
+
+	@Test
+	void jarFileEntryWithEpochTimeOfZeroShouldNotFail() throws Exception {
+		File file = new File(this.tempDir, "timed.jar");
+		FileOutputStream fileOutputStream = new FileOutputStream(file);
+		try (JarOutputStream jarOutputStream = new JarOutputStream(fileOutputStream)) {
+			jarOutputStream.setComment("outer");
+			JarEntry entry = new JarEntry("1.dat");
+			entry.setLastModifiedTime(FileTime.from(Instant.EPOCH));
+			ReflectionTestUtils.setField(entry, "xdostime", 0);
+			jarOutputStream.putNextEntry(entry);
+			jarOutputStream.write(new byte[] { (byte) 1 });
+			jarOutputStream.closeEntry();
+		}
+		try (JarFile jar = new JarFile(file)) {
+			Enumeration<java.util.jar.JarEntry> entries = jar.entries();
+			JarEntry entry = entries.nextElement();
+			assertThat(entry.getLastModifiedTime().toInstant()).isEqualTo(Instant.EPOCH);
+			assertThat(entry.getName()).isEqualTo("1.dat");
+		}
 	}
 
 	private int getJavaVersion() {

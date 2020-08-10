@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.ServletContainer;
 import org.apache.jasper.servlet.JspServlet;
 import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -67,6 +68,13 @@ class UndertowServletWebServerFactoryTests extends AbstractServletWebServerFacto
 	@Override
 	protected UndertowServletWebServerFactory getFactory() {
 		return new UndertowServletWebServerFactory(0);
+	}
+
+	@AfterEach
+	void awaitClosureOfSslRelatedInputStreams() {
+		// https://issues.redhat.com/browse/UNDERTOW-1705
+		File resource = new File(this.tempDir, "test.txt");
+		Awaitility.await().atMost(Duration.ofSeconds(30)).until(() -> (!resource.isFile()) || resource.delete());
 	}
 
 	@Test

@@ -18,7 +18,7 @@ See _<<getting-started.adoc#getting-started-installing-the-cli>>_ in the "`Getti
 [[cli-using-the-cli]]
 == Using the CLI
 Once you have installed the CLI, you can run it by typing `spring` and pressing Enter at the command line.
-If you run `spring` without any arguments, a simple help screen is displayed, as follows:
+If you run `spring` without any arguments, a help screen is displayed, as follows:
 
 [indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -171,7 +171,7 @@ Doing so consults Spring Boot's default dependency metadata to deduce the artifa
 
 NOTE: The default metadata is tied to the version of the CLI that you use.
 It changes only when you move to a new version of the CLI, putting you in control of when the versions of your dependencies may change.
-A table showing the dependencies and their versions that are included in the default metadata can be found in the <<appendix-dependency-versions.adoc#appendix-dependency-versions,appendix>>.
+A table showing the dependencies and their versions that are included in the default metadata can be found in the <<appendix-dependency-versions.adoc#dependency-versions,appendix>>.
 
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.BrokenBarrierException;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLException;
@@ -87,12 +91,15 @@ public abstract class AbstractReactiveWebServerFactoryTests {
 	protected abstract AbstractReactiveWebServerFactory getFactory();
 
 	@Test
-	void specificPort() {
+	void specificPort() throws Exception {
 		AbstractReactiveWebServerFactory factory = getFactory();
-		int specificPort = SocketUtils.findAvailableTcpPort(41000);
-		factory.setPort(specificPort);
-		this.webServer = factory.getWebServer(new EchoHandler());
-		this.webServer.start();
+		int specificPort = doWithRetry(() -> {
+			int port = SocketUtils.findAvailableTcpPort(41000);
+			factory.setPort(port);
+			this.webServer = factory.getWebServer(new EchoHandler());
+			this.webServer.start();
+			return port;
+		});
 		Mono<String> result = getWebClient().build().post().uri("/test").contentType(MediaType.TEXT_PLAIN)
 				.body(BodyInserters.fromValue("Hello World")).exchange()
 				.flatMap((response) -> response.bodyToMono(String.class));
@@ -108,6 +115,7 @@ public abstract class AbstractReactiveWebServerFactoryTests {
 	@Test
 	void basicSslFromFileSystem() {
 		testBasicSslWithKeyStore("src/test/resources/test.jks", "password");
+
 	}
 
 	protected final void testBasicSslWithKeyStore(String keyStore, String keyPassword) {
@@ -125,6 +133,44 @@ public abstract class AbstractReactiveWebServerFactoryTests {
 				.body(BodyInserters.fromValue("Hello World")).exchange()
 				.flatMap((response) -> response.bodyToMono(String.class));
 		assertThat(result.block(Duration.ofSeconds(30))).isEqualTo("Hello World");
+	}
+
+	@Test
+	void sslWithValidAlias() {
+		String keyStore = "classpath:test.jks";
+		String keyPassword = "password";
+		AbstractReactiveWebServerFactory factory = getFactory();
+		Ssl ssl = new Ssl();
+		ssl.setKeyStore(keyStore);
+		ssl.setKeyPassword(keyPassword);
+		ssl.setKeyAlias("test-alias");
+		factory.setSsl(ssl);
+		this.webServer = factory.getWebServer(new EchoHandler());
+		this.webServer.start();
+		ReactorClientHttpConnector connector = buildTrustAllSslConnector();
+		WebClient client = WebClient.builder().baseUrl("https://localhost:" + this.webServer.getPort())
+				.clientConnector(connector).build();
+
+		Mono<String> result = client.post().uri("/test").contentType(MediaType.TEXT_PLAIN)
+				.body(BodyInserters.fromValue("Hello World")).exchange()
+				.flatMap((response) -> response.bodyToMono(String.class));
+
+		StepVerifier.setDefaultTimeout(Duration.ofSeconds(30));
+		StepVerifier.create(result).expectNext("Hello World").verifyComplete();
+	}
+
+	@Test
+	void sslWithInvalidAliasFailsDuringStartup() {
+		String keyStore = "classpath:test.jks";
+		String keyPassword = "password";
+		AbstractReactiveWebServerFactory factory = getFactory();
+		Ssl ssl = new Ssl();
+		ssl.setKeyStore(keyStore);
+		ssl.setKeyPassword(keyPassword);
+		ssl.setKeyAlias("test-alias-404");
+		factory.setSsl(ssl);
+		assertThatThrownBy(() -> factory.getWebServer(new EchoHandler()).start())
+				.hasStackTraceContaining("Keystore does not contain specified alias 'test-alias-404'");
 	}
 
 	protected ReactorClientHttpConnector buildTrustAllSslConnector() {
@@ -290,6 +336,31 @@ public abstract class AbstractReactiveWebServerFactoryTests {
 				.hasMessageContaining("Could not load key store 'null'");
 	}
 
+	@Test
+	void whenARequestIsActiveThenStopWillComplete() throws InterruptedException, BrokenBarrierException {
+		AbstractReactiveWebServerFactory factory = getFactory();
+		CyclicBarrier barrier = new CyclicBarrier(2);
+		CountDownLatch latch = new CountDownLatch(1);
+		this.webServer = factory.getWebServer((request, response) -> {
+			try {
+				barrier.await();
+				latch.await();
+			}
+			catch (InterruptedException ex) {
+				Thread.currentThread().interrupt();
+			}
+			catch (BrokenBarrierException ex) {
+				throw new IllegalStateException(ex);
+			}
+			return response.setComplete();
+		});
+		this.webServer.start();
+		new Thread(() -> getWebClient().build().get().uri("/").exchange().block()).start();
+		barrier.await();
+		this.webServer.stop();
+		latch.countDown();
+	}
+
 	protected WebClient prepareCompressionTest() {
 		Compression compression = new Compression();
 		compression.setEnabled(true);
@@ -314,10 +385,12 @@ public abstract class AbstractReactiveWebServerFactoryTests {
 	}
 
 	protected void assertResponseIsCompressed(ResponseEntity<Void> response) {
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getHeaders().getFirst("X-Test-Compressed")).isEqualTo("true");
 	}
 
 	protected void assertResponseIsNotCompressed(ResponseEntity<Void> response) {
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getHeaders().keySet()).doesNotContain("X-Test-Compressed");
 	}
 
@@ -327,6 +400,19 @@ public abstract class AbstractReactiveWebServerFactoryTests {
 		String body = getWebClient().build().get().header("X-Forwarded-Proto", "https").retrieve()
 				.bodyToMono(String.class).block(Duration.ofSeconds(30));
 		assertThat(body).isEqualTo("https");
+	}
+
+	private <T> T doWithRetry(Callable<T> action) throws Exception {
+		Exception lastFailure = null;
+		for (int i = 0; i < 10; i++) {
+			try {
+				return action.call();
+			}
+			catch (Exception ex) {
+				lastFailure = ex;
+			}
+		}
+		throw new IllegalStateException("Action was not successful in 10 attempts", lastFailure);
 	}
 
 	protected static class EchoHandler implements HttpHandler {

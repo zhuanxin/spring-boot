@@ -38,7 +38,7 @@ The following example registers `ProjectConstraintViolationFailureAnalyzer`:
 	com.example.ProjectConstraintViolationFailureAnalyzer
 ----
 
-NOTE: If you need access to the `BeanFactory` or the `Environment`, your `FailureAnalyzer` can simply implement `BeanFactoryAware` or `EnvironmentAware` respectively.
+NOTE: If you need access to the `BeanFactory` or the `Environment`, your `FailureAnalyzer` can implement `BeanFactoryAware` or `EnvironmentAware` respectively.
 
 
 
@@ -103,8 +103,9 @@ It is therefore possible to get the location of the file from the environment.
 The preceding example adds the `custom-resource` property source at the end of the list so that a key defined in any of the usual other locations takes precedence.
 A custom implementation may define another order.
 
-CAUTION: While using `@PropertySource` on your `@SpringBootApplication` may seem to be a convenient and easy way to load a custom resource in the `Environment`, we do not recommend it, because Spring Boot prepares the `Environment` before the `ApplicationContext` is refreshed.
-Any key defined with `@PropertySource` is loaded too late to have any effect on auto-configuration.
+CAUTION: While using `@PropertySource` on your `@SpringBootApplication` may seem to be a convenient way to load a custom resource in the `Environment`, we do not recommend it.
+Such property sources are not added to the `Environment` until the application context is being refreshed.
+This is too late to configure certain properties such as `+logging.*+` and `+spring.main.*+` which are read before refresh begins.
 
 
 
@@ -256,11 +257,6 @@ The actual application _now_ shows the banner (as overridden by configuration) a
 [[howto-change-the-location-of-external-properties]]
 === Change the Location of External Properties of an Application
 By default, properties from different sources are added to the Spring `Environment` in a defined order (see "`<<spring-boot-features.adoc#boot-features-external-config>>`" in the '`Spring Boot features`' section for the exact order).
-
-A nice way to augment and modify this ordering is to add `@PropertySource` annotations to your application sources.
-Classes passed to the `SpringApplication` static convenience methods and those added using `setSources()` are inspected to see if they have `@PropertySources`.
-If they do, those properties are added to the `Environment` early enough to be used in all phases of the `ApplicationContext` lifecycle.
-Properties added in this way have lower priority than any added by using the default locations (such as `application.properties`), system properties, environment variables, or the command line.
 
 You can also provide the following System properties (or environment variables) to change the behavior:
 
@@ -418,8 +414,8 @@ Many Spring Boot starters include default embedded containers.
 * For servlet stack applications, the `spring-boot-starter-web` includes Tomcat by including `spring-boot-starter-tomcat`, but you can use `spring-boot-starter-jetty` or `spring-boot-starter-undertow` instead.
 * For reactive stack applications, the `spring-boot-starter-webflux` includes  Reactor Netty by including `spring-boot-starter-reactor-netty`, but you can use `spring-boot-starter-tomcat`, `spring-boot-starter-jetty`, or `spring-boot-starter-undertow` instead.
 
-When switching to a different HTTP server, you need to exclude the default dependencies in addition to including the one you need.
-Spring Boot provides separate starters for HTTP servers to help make this process as easy as possible.
+When switching to a different HTTP server, you need to swap the default dependencies for those that you need instead.
+To help with this process, Spring Boot provides a separate starter for each of the supported HTTP servers.
 
 The following Maven example shows how to exclude Tomcat and include Jetty for Spring MVC:
 
@@ -448,19 +444,20 @@ The following Maven example shows how to exclude Tomcat and include Jetty for Sp
 
 NOTE: The version of the Servlet API has been overridden as, unlike Tomcat 9 and Undertow 2.0, Jetty 9.4 does not support Servlet 4.0.
 
-The following Gradle example shows how to exclude Netty and include Undertow for Spring WebFlux:
+The following Gradle example shows how to use Undertow in place of Reactor Netty for Spring WebFlux:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	configurations {
-		// exclude Reactor Netty
-		compile.exclude module: 'spring-boot-starter-reactor-netty'
+	configurations.all {
+		resolutionStrategy.dependencySubstitution.all { dependency ->
+			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-reactor-netty') {
+				dependency.useTarget("org.springframework.boot:spring-boot-starter-undertow:$dependency.requested.version", 'Use Undertow instead of Reactor Netty')
+			}
+		}
 	}
 
 	dependencies {
 		compile 'org.springframework.boot:spring-boot-starter-webflux'
-		// Use Undertow instead
-		compile 'org.springframework.boot:spring-boot-starter-undertow'
 		// ...
 	}
 ----
@@ -790,13 +787,19 @@ For more details, see {jetty-docs}/configuring-jetty-request-logs.html[the Jetty
 
 
 [[howto-use-behind-a-proxy-server]]
-[[howto-use-tomcat-behind-a-proxy-server]]
 === Running Behind a Front-end Proxy Server
-Your application might need to send `302` redirects or render content with absolute links back to itself.
-When running behind a proxy, the caller wants a link to the proxy and not to the physical address of the machine hosting your app.
-Typically, such situations are handled through a contract with the proxy, which adds headers to tell the back end how to construct links to itself.
+If your application is running behind a proxy, a load-balancer or in the cloud, the request information (like the host, port, scheme...) might change along the way.
+Your application may be running on `10.10.10.10:8080`, but HTTP clients should only see `example.org`.
 
-If the proxy adds conventional `X-Forwarded-For` and `X-Forwarded-Proto` headers (most proxy servers do so), the absolute links should be rendered correctly, provided `server.forward-headers-strategy` is set to `NATIVE` or `FRAMEWORK` in your `application.properties`.
+https://tools.ietf.org/html/rfc7239[RFC7239 "Forwarded Headers"] defines the `Forwarded` HTTP header; proxies can use this header to provide information about the original request.
+You can configure your application to read those headers and automatically use that information when creating links and sending them to clients in HTTP 302 responses, JSON documents or HTML pages.
+There are also non-standard headers, like `X-Forwarded-Host`, `X-Forwarded-Port`, `X-Forwarded-Proto`, `X-Forwarded-Ssl`, and `X-Forwarded-Prefix`.
+
+If the proxy adds the commonly used `X-Forwarded-For` and `X-Forwarded-Proto` headers, setting `server.forward-headers-strategy` to `NATIVE` is enough to support those.
+With this option, the Web servers themselves natively support this feature; you can check their specific documentation to learn about specific behavior.
+
+If this is not enough, Spring Framework provides a {spring-framework-docs}web.html#filters-forwarded-headers[ForwardedHeaderFilter].
+You can register it as a Servlet Filter in your application by setting `server.forward-headers-strategy` is set to `FRAMEWORK`.
 
 NOTE: If your application runs in Cloud Foundry or Heroku, the configprop:server.forward-headers-strategy[] property defaults to `NATIVE`.
 In all other instances, it defaults to `NONE`.
@@ -862,8 +865,8 @@ You can add an `org.apache.catalina.connector.Connector` to the `TomcatServletWe
 			return connector;
 		}
 		catch (IOException ex) {
-			throw new IllegalStateException("can't access keystore: [" + "keystore"
-					+ "] or truststore: [" + "keystore" + "]", ex);
+			throw new IllegalStateException("can't access keystore: [" + keystore
+					+ "] or truststore: [" + truststore + "]", ex);
 		}
 	}
 ----
@@ -1027,7 +1030,7 @@ The `ObjectMapper` (or `XmlMapper` for Jackson XML converter) instance (created 
 Spring Boot also has some features to make it easier to customize this behavior.
 
 You can configure the `ObjectMapper` and `XmlMapper` instances by using the environment.
-Jackson provides an extensive suite of simple on/off features that can be used to configure various aspects of its processing.
+Jackson provides an extensive suite of on/off features that can be used to configure various aspects of its processing.
 These features are described in six enums (in Jackson) that map onto properties in the environment:
 
 |===
@@ -1288,7 +1291,7 @@ This ensures efficient sharing of resources for the server receiving requests an
 == Logging
 Spring Boot has no mandatory logging dependency, except for the Commons Logging API, which is typically provided by Spring Framework's `spring-jcl` module.
 To use https://logback.qos.ch[Logback], you need to include it and `spring-jcl` on the classpath.
-The simplest way to do that is through the starters, which all depend on `spring-boot-starter-logging`.
+The recommended way to do that is through the starters, which all depend on `spring-boot-starter-logging`.
 For a web application, you need only `spring-boot-starter-web`, since it depends transitively on the logging starter.
 If you use Maven, the following dependency adds logging for you:
 
@@ -1403,7 +1406,7 @@ Spring Boot supports https://logging.apache.org/log4j/2.x/[Log4j 2] for logging 
 If you use the starters for assembling dependencies, you have to exclude Logback and then include log4j 2 instead.
 If you do not use the starters, you need to provide (at least) `spring-jcl` in addition to Log4j 2.
 
-The simplest path is probably through the starters, even though it requires some jiggling with excludes.
+The recommended path is through the starters, even though it requires some jiggling.
 The following example shows how to set up the starters in Maven:
 
 [source,xml,indent=0,subs="verbatim,quotes,attributes"]
@@ -1434,14 +1437,16 @@ And the following example shows one way to set up the starters in Gradle:
 ----
 	dependencies {
 		compile 'org.springframework.boot:spring-boot-starter-web'
-		compile 'org.springframework.boot:spring-boot-starter-log4j2'
 	}
 
-	configurations {
-		all {
-			exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	configurations.all {
+		resolutionStrategy.dependencySubstitution.all { dependency ->
+			if (dependency.requested instanceof ModuleComponentSelector && dependency.requested.module == 'spring-boot-starter-logging') {
+				dependency.useTarget("org.springframework.boot:spring-boot-starter-log4j2:$dependency.requested.version", 'Use Log4j2 instead of Logback')
+			}
 		}
 	}
+}
 ----
 
 NOTE: The Log4j starters gather together the dependencies for common logging requirements (such as having Tomcat use `java.util.logging` but configuring the output using Log4j 2).
@@ -1634,7 +1639,7 @@ Spring Data can create implementations of `@Repository` interfaces of various fl
 Spring Boot handles all of that for you, as long as those `@Repositories` are included in the same package (or a sub-package) of your `@EnableAutoConfiguration` class.
 
 For many applications, all you need is to put the right Spring Data dependencies on your classpath.
-There is a `spring-boot-starter-data-jpa` for JPA, spring-boot-starter-data-mongodb` for Mongodb, etc.
+There is a `spring-boot-starter-data-jpa` for JPA, `spring-boot-starter-data-mongodb` for Mongodb, etc.
 To get started, create some repository interfaces to handle your `@Entity` objects.
 
 Spring Boot tries to guess the location of your `@Repository` definitions, based on the `@EnableAutoConfiguration` it finds.
@@ -1737,8 +1742,7 @@ See {spring-boot-autoconfigure-module-code}/orm/jpa/HibernateJpaAutoConfiguratio
 Hibernate {hibernate-docs}#caching[second-level cache] can be configured for a range of cache providers.
 Rather than configuring Hibernate to lookup the cache provider again, it is better to provide the one that is available in the context whenever possible.
 
-If you're using JCache, this is pretty easy.
-First, make sure that `org.hibernate:hibernate-jcache` is available on the classpath.
+To do this with JCache, first make sure that `org.hibernate:hibernate-jcache` is available on the classpath.
 Then, add a `HibernatePropertiesCustomizer` bean as shown in the following example:
 
 [source,java,indent=0]
@@ -1769,10 +1773,9 @@ Spring Boot auto-configuration switches off its entity manager in the presence o
 
 [[howto-use-two-entity-managers]]
 === Use Two EntityManagers
-Even if the default `EntityManagerFactory` works fine, you need to define a new one.
-Otherwise, the presence of the second bean of that type switches off the default.
-To make it easy to do, you can use the convenient `EntityManagerBuilder` provided by Spring Boot.
-Alternatively, you can just the `LocalContainerEntityManagerFactoryBean` directly from Spring ORM, as shown in the following example:
+Even if the default `EntityManagerFactory` works fine, you need to define a new one, otherwise the presence of the second bean of that type switches off the default.
+You can use the `EntityManagerBuilder` provided by Spring Boot to help you to create one.
+Alternatively, you can use the `LocalContainerEntityManagerFactoryBean` directly from Spring ORM, as shown in the following example:
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
@@ -1798,6 +1801,11 @@ Alternatively, you can just the `LocalContainerEntityManagerFactoryBean` directl
 				.build();
 	}
 ----
+
+NOTE: When you create a bean for `LocalContainerEntityManagerFactoryBean` yourself, any customization that was applied during the creation of the auto-configured `LocalContainerEntityManagerFactoryBean` is lost.
+For example, in case of Hibernate, any properties under the `spring.jpa.hibernate` prefix will not be automatically applied to your `LocalContainerEntityManagerFactoryBean`.
+If you were relying on these properties for configuring things like the naming strategy or the DDL mode, you will need to explicitly configure that when creating the `LocalContainerEntityManagerFactoryBean` bean.
+On the other hand, properties that get applied to the auto-configured `EntityManagerFactoryBuilder`, which are specified via `spring.jpa.properties`, will automatically be applied, provided you use the auto-configured `EntityManagerFactoryBuilder` to build the `LocalContainerEntityManagerFactoryBean` bean.
 
 The configuration above almost works on its own.
 To complete the picture, you need to configure `TransactionManagers` for the two `EntityManagers` as well.
@@ -1942,7 +1950,7 @@ For example, you might choose to set it to the vendor name of the database (`hsq
 
 [NOTE]
 ====
-Spring Boot automatically creates the schema of an embedded `DataSource`.
+When only basic SQL scripts are used, Spring Boot automatically creates the schema of an embedded `DataSource`.
 This behavior can be customized by using the configprop:spring.datasource.initialization-mode[] property.
 For instance, if you want to always initialize the `DataSource` regardless of its type:
 
@@ -1950,14 +1958,22 @@ For instance, if you want to always initialize the `DataSource` regardless of it
 ----
 	spring.datasource.initialization-mode=always
 ----
+
+In a JPA-based app, you can choose to let Hibernate create the schema or use `schema.sql`, but you cannot do both.
+Make sure to disable `spring.jpa.hibernate.ddl-auto` if you use `schema.sql`.
+
+[indent=0,subs="verbatim,quotes,attributes"]
+----
+	spring.jpa.hibernate.ddl-auto=none
+----
+
+If you are using a <<spring-boot-features.adoc#howto-use-a-higher-level-database-migration-tool,Higher-level Database Migration Tool>>, like Flyway or Liquibase, you should use them alone to create and initialize the schema.
+Using the basic `schema.sql` and `data.sql` scripts alongside Flyway or Liquibase is not recommended and support will be removed in a future release.
 ====
 
 By default, Spring Boot enables the fail-fast feature of the Spring JDBC initializer.
 This means that, if the scripts cause exceptions, the application fails to start.
 You can tune that behavior by setting `spring.datasource.continue-on-error`.
-
-NOTE: In a JPA-based app, you can choose to let Hibernate create the schema or use `schema.sql`, but you cannot do both.
-Make sure to disable `spring.jpa.hibernate.ddl-auto` if you use `schema.sql`.
 
 
 
@@ -2029,7 +2045,7 @@ If you like to use a different `DataSource`, you can create one and mark its `@B
 If you do so and want two data sources, remember to create another one and mark it as `@Primary`.
 Alternatively, you can use Flyway's native `DataSource` by setting `spring.flyway.[url,user,password]` in external properties.
 Setting either `spring.flyway.url` or `spring.flyway.user` is sufficient to cause Flyway to use its own `DataSource`.
-If any of the three properties has not be set, the value of its equivalent `spring.datasource` property will be used.
+If any of the three properties has not been set, the value of its equivalent `spring.datasource` property will be used.
 
 You can also use Flyway to provide data for specific scenarios.
 For example, you can place test-specific migrations in `src/test/resources` and they are run only when your application starts for testing.
@@ -2049,6 +2065,13 @@ With that setup, migrations in `dev/db/migration` run only when the `dev` profil
 ==== Execute Liquibase Database Migrations on Startup
 To automatically run Liquibase database migrations on startup, add the `org.liquibase:liquibase-core` to your classpath.
 
+[NOTE]
+====
+When you add the `org.liquibase:liquibase-core` to your classpath, database migrations run by default for both during application startup and before your tests run.
+This behavior can be customized by using the configprop:spring.liquibase.enabled[] property, setting different values in the `main` and `test` configurations.
+It is not possible to use two different ways to initialize the database (e.g. Liquibase for application startup, JPA for test runs).
+====
+
 By default, the master change log is read from `db/changelog/db.changelog-master.yaml`, but you can change the location by setting `spring.liquibase.change-log`.
 In addition to YAML, Liquibase also supports JSON, XML, and SQL change log formats.
 
@@ -2057,7 +2080,7 @@ If you need to use a different `DataSource`, you can create one and mark its `@B
 If you do so and you want two data sources, remember to create another one and mark it as `@Primary`.
 Alternatively, you can use Liquibase's native `DataSource` by setting `spring.liquibase.[url,user,password]` in external properties.
 Setting either `spring.liquibase.url` or `spring.liquibase.user` is sufficient to cause Liquibase to use its own `DataSource`.
-If any of the three properties has not be set, the value of its equivalent `spring.datasource` property will be used.
+If any of the three properties has not been set, the value of its equivalent `spring.datasource` property will be used.
 
 See {spring-boot-autoconfigure-module-code}/liquibase/LiquibaseProperties.java[`LiquibaseProperties`] for details about available settings such as contexts, the default schema, and others.
 
@@ -2097,36 +2120,70 @@ The preceding example overrides the default factory, and it should be applied to
 
 [[howto-batch-applications]]
 == Batch Applications
-This section answers questions that arise from using Spring Batch with Spring Boot.
+A number of questions often arise when people use Spring Batch from within a Spring Boot application.
+This section addresses those questions.
 
-NOTE: By default, batch applications require a `DataSource` to store job details.
-Batch autowires a single `DataSource` in your context and uses that for processing.
-To have Batch use a `DataSource` other than the application’s main `DataSource`, declare a `DataSource` bean, annotating its `@Bean` method with `@BatchDataSource`.
-If you do so and want two data sources, remember to create another one and mark it as `@Primary`.
+
+
+[[howto-spring-batch-specifying-a-data-source]]
+=== Specifying a Batch Data Source
+By default, batch applications require a `DataSource` to store job details.
+Spring Batch expects a single `DataSource` by default.
+To have it use a `DataSource` other than the application’s main `DataSource`, declare a `DataSource` bean, annotating its `@Bean` method with `@BatchDataSource`.
+If you do so and want two data sources, remember to mark the other one `@Primary`.
 To take greater control, implement `BatchConfigurer`.
 See {spring-batch-api}/core/configuration/annotation/EnableBatchProcessing.html[The Javadoc of `@EnableBatchProcessing`] for more details.
 
-For more about Spring Batch, see the {spring-batch}[Spring Batch project page].
+For more info about Spring Batch, see the {spring-batch}[Spring Batch project page].
 
 
 
-[[howto-execute-spring-batch-jobs-on-startup]]
-=== Execute Spring Batch Jobs on Startup
-Spring Batch auto-configuration is enabled by adding `@EnableBatchProcessing` (from Spring Batch) somewhere in your context.
+[[howto-spring-batch-running-jobs-on-startup]]
+=== Running Spring Batch Jobs on Startup
+Spring Batch auto-configuration is enabled by adding `@EnableBatchProcessing` to one of your `@Configuration` classes.
 
-By default, it executes *all* `Jobs` in the application context on startup (see {spring-boot-autoconfigure-module-code}/batch/JobLauncherCommandLineRunner.java[JobLauncherCommandLineRunner] for details).
+By default, it executes *all* `Jobs` in the application context on startup (see {spring-boot-autoconfigure-module-code}/batch/JobLauncherCommandLineRunner.java[`JobLauncherCommandLineRunner`] for details).
 You can narrow down to a specific job or jobs by specifying `spring.batch.job.names` (which takes a comma-separated list of job name patterns).
 
-[TIP]
-.Specifying job parameters on the command line
-====
-Unlike command line option arguments that <<spring-boot-features.adoc#boot-features-external-config-command-line-args,set properties in the `Environment`>> (i.e. by starting with `--`, such as `--my-property=value`), job parameters have to be specified on the command line without dashes (e.g. `jobParam=value`).
-====
+See {spring-boot-autoconfigure-module-code}/batch/BatchAutoConfiguration.java[BatchAutoConfiguration] and {spring-batch-api}/core/configuration/annotation/EnableBatchProcessing.html[@EnableBatchProcessing] for more details.
 
-If the application context includes a `JobRegistry`, the jobs in `spring.batch.job.names` are looked up in the registry instead of being autowired from the context.
-This is a common pattern with more complex systems, where multiple jobs are defined in child contexts and registered centrally.
 
-See {spring-boot-autoconfigure-module-code}/batch/BatchAutoConfiguration.java[BatchAutoConfiguration] and https://github.com/spring-projects/spring-batch/blob/master/spring-batch-core/src/main/java/org/springframework/batch/core/configuration/annotation/EnableBatchProcessing.java[@EnableBatchProcessing] for more details.
+
+[[howto-spring-batch-running-command-line]]
+=== Running from the Command Line
+Running Spring Batch with Spring Boot from the command line differs from running Spring Batch by itself from the command line.
+The most important difference is that they parse command line arguments differently, which can cause trouble, as described in the next section.
+
+
+
+==== Passing Command-line Arguments
+Spring Boot converts any command line argument starting with `--` to a property to add to the `Environment`, see <<spring-boot-features.adoc#boot-features-external-config-command-line-args,accessing command line properties>>.
+This should not be used to pass arguments to batch jobs.
+To specify batch arguments on the command line, use the regular format (i.e. without `--`), as shown in the following example:
+
+[indent=0,subs="attributes"]
+----
+	$ java -jar myapp.jar someParameter=someValue anotherParameter=anotherValue
+----
+
+If you specify a property of the `Environment` on the command line, it impacts the arguments that your job uses as well.
+Consider the following command:
+
+[indent=0,subs="attributes"]
+----
+	$ java -jar myapp.jar --server.port=7070 someParameter=someValue
+----
+
+This provides two arguments to the batch job: `someParameter=someValue` and `-server.port=7070`.
+Note that the second argument is missing one hyphen as Spring Batch will remove the first `-` character of a property if it is present.
+
+
+
+[[howto-spring-batch-storing-job-repository]]
+=== Storing the Job Repository
+Spring Batch requires a data store for the `Job` repository.
+If you use Spring Boot, you must use an actual database.
+Note that it can be an in-memory database, see {spring-batch-docs}job.html#configuringJobRepository[Configuring a Job Repository].
 
 
 
@@ -2159,7 +2216,7 @@ Overriding the error page with your own depends on the templating technology tha
 For example, if you use Thymeleaf, you can add an `error.html` template.
 If you use FreeMarker, you can add an `error.ftlh` template.
 In general, you need a `View` that resolves with a name of `error` or a `@Controller` that handles the `/error` path.
-Unless you replaced some of the default configuration, you should find a `BeanNameViewResolver` in your `ApplicationContext`, so a `@Bean` named `error` would be a simple way of doing that.
+Unless you replaced some of the default configuration, you should find a `BeanNameViewResolver` in your `ApplicationContext`, so a `@Bean` named `error` would be one way of doing that.
 See {spring-boot-autoconfigure-module-code}/web/servlet/error/ErrorMvcAutoConfiguration.java[`ErrorMvcAutoConfiguration`] for more options.
 
 See also the section on "`<<spring-boot-features.adoc#boot-features-error-handling, Error Handling>>`" for details of how to register handlers in the servlet container.
@@ -2167,13 +2224,32 @@ See also the section on "`<<spring-boot-features.adoc#boot-features-error-handli
 
 
 [[howto-sanitize-sensible-values]]
-=== Sanitize sensible values
+[[howto-sanitize-sensitive-values]]
+=== Sanitize Sensitive Values
 Information returned by the `env` and `configprops` endpoints can be somewhat sensitive so keys matching a certain pattern are sanitized by default (i.e. their values are replaced by `+******+`).
 
-Spring Boot uses sensible defaults for such keys: for instance, any key ending with the word "password", "secret", "key" or "token" is sanitized.
-It is also possible to use a regular expression instead, such as `+*credentials.*+` to sanitize any key that holds the word `credentials` as part of the key.
-
 The patterns to use can be customized using the `management.endpoint.env.keys-to-sanitize` and `management.endpoint.configprops.keys-to-sanitize` respectively.
+
+Spring Boot uses sensible defaults for such keys: any key ending with the word "password", "secret", "key", "token", "vcap_services", "sun.java.command", "uri", "uris", "address" or "addresses" is sanitized.
+Additionally, any key that holds the word `credentials` as part of the key is sanitized (configured as a regular expression, i.e. `+*credentials.*+`).
+
+If any of the keys to sanitize are URI format (i.e. `<scheme>://<username>:<password>@<host>:<port>/`), only the password part is sanitized.
+
+
+
+[[howto-map-health-indicators-to-metrics]]
+=== Map Health Indicators to Micrometer Metrics
+Spring Boot health indicators return a `Status` type to indicate the overall system health.
+If you want to monitor or alert on levels of health for a particular application, you can export these statuses as metrics via Micrometer.
+By default, the status codes "`up`", "`down`", "`out of service`" and "`unknown`" are used by Spring Boot.
+To export these, you'll need to convert these states to some set of numbers so that they can be used with a Micrometer `Gauge`.
+
+The follow example shows one way to write such an exporter:
+
+[source,java,indent=0,subs="verbatim,quotes,attributes"]
+----
+include::{code-examples}/actuate/metrics/MetricsHealthMicrometerExportExample.java[tag=configuration]
+----
 
 
 
@@ -2289,7 +2365,7 @@ See {spring-boot-autoconfigure-module-code}/groovy/template/GroovyTemplateAutoCo
 [[howto-reload-fast-restart]]
 === Fast Application Restarts
 The `spring-boot-devtools` module includes support for automatic application restarts.
-While not as fast as technologies such as https://jrebel.com/software/jrebel/[JRebel] it is usually significantly faster than a "`cold start`".
+While not as fast as technologies such as https://www.jrebel.com/products/jrebel[JRebel] it is usually significantly faster than a "`cold start`".
 You should probably give it a try before investigating some of the more complex reload options discussed later in this document.
 
 For more details, see the <<using-spring-boot.adoc#using-boot-devtools>> section.
@@ -2377,7 +2453,7 @@ Gradle users can achieve the same result by using the https://plugins.gradle.org
 [source,groovy,indent=0]
 ----
 	plugins {
-		id "com.gorylenko.gradle-git-properties" version "1.5.1"
+		id "com.gorylenko.gradle-git-properties" version "2.2.2"
 	}
 ----
 
@@ -2524,7 +2600,7 @@ For example, to indicate that JRuby should be flagged for unpacking by using the
 [[howto-create-a-nonexecutable-jar]]
 === Create a Non-executable JAR with Exclusions
 Often, if you have an executable and a non-executable jar as two separate build products, the executable version has additional configuration files that are not needed in a library jar.
-For example, the `application.yml` configuration file might by excluded from the non-executable JAR.
+For example, the `application.yml` configuration file might be excluded from the non-executable JAR.
 
 In Maven, the executable jar must be the main artifact and you can add a classified jar for the library, as follows:
 
@@ -2698,8 +2774,7 @@ This means that, in addition to being deployable to a servlet container, you can
 
 [[howto-convert-an-existing-application-to-spring-boot]]
 === Convert an Existing Application to Spring Boot
-For a non-web application, it should be easy to convert an existing Spring application to a Spring Boot application.
-To do so, throw away the code that creates your `ApplicationContext` and replace it with calls to `SpringApplication` or `SpringApplicationBuilder`.
+To convert an existing non-web Spring application to a Spring Boot application, replace the code that creates your `ApplicationContext` and replace it with calls to `SpringApplication` or `SpringApplicationBuilder`.
 Spring MVC web applications are generally amenable to first creating a deployable war application and then migrating it later to an executable war or jar.
 See the https://spring.io/guides/gs/convert-jar-to-war/[Getting Started Guide on Converting a jar to a war].
 
@@ -2734,7 +2809,7 @@ If you have other features in your application (for instance, using other servle
 * A `@Bean` of type `Servlet` or `ServletRegistrationBean` installs that bean in the container as if it were a `<servlet/>` and `<servlet-mapping/>` in `web.xml`.
 * A `@Bean` of type `Filter` or `FilterRegistrationBean` behaves similarly (as a `<filter/>` and `<filter-mapping/>`).
 * An `ApplicationContext` in an XML file can be added through an `@ImportResource` in your `Application`.
-  Alternatively, simple cases where annotation configuration is heavily used already can be recreated in a few lines as `@Bean` definitions.
+  Alternatively, cases where annotation configuration is heavily used already can be recreated in a few lines as `@Bean` definitions.
 
 Once the war file is working, you can make it executable by adding a `main` method to your `Application`, as shown in the following example:
 
@@ -2838,7 +2913,7 @@ You can do so by adding a `WEB-INF/weblogic.xml` file with the following content
 === Use Jedis Instead of Lettuce
 By default, the Spring Boot starter (`spring-boot-starter-data-redis`) uses https://github.com/lettuce-io/lettuce-core/[Lettuce].
 You need to exclude that dependency and include the https://github.com/xetorthio/jedis/[Jedis] one instead.
-Spring Boot manages these dependencies to help make this process as easy as possible.
+Spring Boot manages both of these dependencies so you can switch to Jedis without specifying a version.
 
 The following example shows how to do so in Maven:
 

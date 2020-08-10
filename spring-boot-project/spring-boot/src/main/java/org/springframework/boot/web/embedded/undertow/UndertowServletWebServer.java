@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 package org.springframework.boot.web.embedded.undertow;
 
 import java.lang.reflect.Field;
-import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.ArrayList;
@@ -146,14 +145,13 @@ public class UndertowServletWebServer implements WebServer {
 			}
 			catch (Exception ex) {
 				try {
-					if (findBindException(ex) != null) {
+					PortInUseException.ifPortBindingException(ex, (bindException) -> {
 						List<Port> failedPorts = getConfiguredPorts();
-						List<Port> actualPorts = getActualPorts();
-						failedPorts.removeAll(actualPorts);
+						failedPorts.removeAll(getActualPorts());
 						if (failedPorts.size() == 1) {
-							throw new PortInUseException(failedPorts.iterator().next().getNumber());
+							throw new PortInUseException(failedPorts.get(0).getNumber());
 						}
-					}
+					});
 					throw new WebServerException("Unable to start embedded Undertow", ex);
 				}
 				finally {
@@ -178,17 +176,6 @@ public class UndertowServletWebServer implements WebServer {
 		catch (Exception ex) {
 			// Ignore
 		}
-	}
-
-	private BindException findBindException(Exception ex) {
-		Throwable candidate = ex;
-		while (candidate != null) {
-			if (candidate instanceof BindException) {
-				return (BindException) candidate;
-			}
-			candidate = candidate.getCause();
-		}
-		return null;
 	}
 
 	private Undertow createUndertowServer() throws ServletException {

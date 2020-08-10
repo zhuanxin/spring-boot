@@ -1,7 +1,7 @@
 = Contributing to Spring Boot
 
 Spring Boot is released under the Apache 2.0 license. If you would like to contribute
-something, or simply want to hack on the code this document should help you get started.
+something, or want to hack on the code this document should help you get started.
 
 
 
@@ -54,7 +54,7 @@ added after the original pull request but before a merge.
   `./mvnw io.spring.javaformat:spring-javaformat-maven-plugin:apply`.
 * The build includes checkstyle rules for many of our code conventions. Run
   `./mvnw validate` if you want to check you changes are compliant.
-* Make sure all new `.java` files to have a simple Javadoc class comment with at least an
+* Make sure all new `.java` files have a Javadoc class comment with at least an
   `@author` tag identifying you, and preferably at least a paragraph on what the class is
   for.
 * Add the ASF license header comment to all new `.java` files (copy from existing files
@@ -137,9 +137,10 @@ can run this from the top-level directory:
 
 
 === Importing into Eclipse
-You can import the Spring Boot code into any Eclipse 2019-03-based distribution. The
+You can import the Spring Boot code into any Eclipse 2019-12-based distribution. The
 easiest way to setup a new environment is to use the Eclipse Installer with the provided
 `spring-boot-project.setup` file (in the `/eclipse` folder).
+
 
 
 ==== Using the Eclipse Installer
@@ -150,7 +151,7 @@ provision a new environment. To use the installer:
   https://www.eclipse.org/downloads/packages/installer[Eclipse Installer].
 * Switch to "Advanced Mode" using the drop down menu on the right.
 * Select "`Eclipse IDE for Java Developers`" under "`Eclipse.org`" as the product to
-  install, `2019-03` as the product version, and click "`next`".
+  install, `2019-12` as the product version, and click "`next`".
 * For the "`Project`" click on "`+`" to add a new setup file. Select "`Github Projects`"
   and browse for `<checkout>/eclipse/spring-boot-project.setup` from your locally cloned
   copy of the source code. Click "`OK`" to add the setup file to the list.

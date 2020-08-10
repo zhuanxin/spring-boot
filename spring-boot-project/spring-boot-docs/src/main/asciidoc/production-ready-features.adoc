@@ -11,7 +11,7 @@ Auditing, health, and metrics gathering can also be automatically applied to you
 [[production-ready-enabling]]
 == Enabling Production-ready Features
 The {spring-boot-code}/spring-boot-project/spring-boot-actuator[`spring-boot-actuator`] module provides all of Spring Boot's production-ready features.
-The simplest way to enable the features is to add a dependency to the `spring-boot-starter-actuator` '`Starter`'.
+The recommended way to enable the features is to add a dependency on the `spring-boot-starter-actuator` '`Starter`'.
 
 .Definition of Actuator
 ****
@@ -48,10 +48,10 @@ Actuator endpoints let you monitor and interact with your application.
 Spring Boot includes a number of built-in endpoints and lets you add your own.
 For example, the `health` endpoint provides basic application health information.
 
-Each individual endpoint can be <<production-ready-endpoints-enabling-endpoints, enabled or disabled>>.
-This controls whether or not the endpoint is created and its bean exists in the application context.
-To be remotely accessible an endpoint also has to be <<production-ready-endpoints-exposing-endpoints, exposed via JMX or HTTP>>.
-Most applications choose HTTP, where the ID of the endpoint along with a prefix of `/actuator` is mapped to a URL.
+Each individual endpoint can be <<production-ready-endpoints-enabling-endpoints, enabled or disabled>> and <<production-ready-endpoints-exposing-endpoints, exposed (made remotely accessible) over HTTP or JMX>>.
+An endpoint is considered to be available when it is both enabled and exposed.
+The built-in endpoints will only be auto-configured when they are available.
+Most applications choose exposure via HTTP, where the ID of the endpoint along with a prefix of `/actuator` is mapped to a URL.
 For example, by default, the `health` endpoint is mapped to `/actuator/health`.
 
 The following technology-agnostic endpoints are available:
@@ -666,7 +666,10 @@ The following `HealthIndicators` are auto-configured by Spring Boot when appropr
 | {spring-boot-actuator-module-code}/system/DiskSpaceHealthIndicator.java[`DiskSpaceHealthIndicator`]
 | Checks for low disk space.
 
-| {spring-boot-actuator-module-code}/elasticsearch/ElasticSearchRestHealthContributorAutoConfiguration.java[`ElasticSearchRestHealthContributorAutoConfiguration`]
+| {spring-boot-actuator-module-code}/jdbc/DataSourceHealthIndicator.java[`DataSourceHealthIndicator`]
+| Checks that a connection to `DataSource` can be obtained.
+
+| {spring-boot-actuator-module-code}/elasticsearch/ElasticsearchRestHealthIndicator.java[`ElasticsearchRestHealthIndicator`]
 | Checks that an Elasticsearch cluster is up.
 
 | {spring-boot-actuator-module-code}/hazelcast/HazelcastHealthIndicator.java[`HazelcastHealthIndicator`]
@@ -678,11 +681,17 @@ The following `HealthIndicators` are auto-configured by Spring Boot when appropr
 | {spring-boot-actuator-module-code}/jms/JmsHealthIndicator.java[`JmsHealthIndicator`]
 | Checks that a JMS broker is up.
 
+| {spring-boot-actuator-module-code}/ldap/LdapHealthIndicator.java[`LdapHealthIndicator`]
+| Checks that an LDAP server is up.
+
 | {spring-boot-actuator-module-code}/mail/MailHealthIndicator.java[`MailHealthIndicator`]
 | Checks that a mail server is up.
 
 | {spring-boot-actuator-module-code}/mongo/MongoHealthIndicator.java[`MongoHealthIndicator`]
 | Checks that a Mongo database is up.
+
+| {spring-boot-actuator-module-code}/neo4j/Neo4jHealthIndicator.java[`Neo4jHealthIndicator`]
+| Checks that a Neo4j database is up.
 
 | {spring-boot-actuator-module-code}/health/PingHealthIndicator.java[`PingHealthIndicator`]
 | Always responds with `UP`.
@@ -742,13 +751,19 @@ To configure the severity order, add the following property to your application 
 	management.endpoint.health.status.order=fatal,down,out-of-service,unknown,up
 ----
 
-The HTTP status code in the response reflects the overall health status (for example, `UP` maps to 200, while `OUT_OF_SERVICE` and `DOWN` map to 503).
+The HTTP status code in the response reflects the overall health status.
+By default, `OUT_OF_SERVICE` and `DOWN` map to 503.
+Any unmapped health statuses, including `UP`, map to 200.
 You might also want to register custom status mappings if you access the health endpoint over HTTP.
-For example, the following property maps `FATAL` to 503 (service unavailable):
+Configuring a custom mapping disables the defaults mappings for `DOWN` and `OUT_OF_SERVICE`.
+If you want to retain the default mappings they must be configured explicitly alongside any custom mappings.
+For example, the following property maps `FATAL` to 503 (service unavailable) and retains the default mappings for `DOWN` and `OUT_OF_SERVICE`:
 
 [source,properties,indent=0,configprops]
 ----
+	management.endpoint.health.status.http-mapping.down=503
 	management.endpoint.health.status.http-mapping.fatal=503
+	management.endpoint.health.status.http-mapping.out-of-service=503
 ----
 
 TIP: If you need more control, you can define your own `HttpCodeStatusMapper` bean.
@@ -780,7 +795,8 @@ For reactive applications, such as those using Spring WebFlux, `ReactiveHealthCo
 Similar to a traditional `HealthContributor`, health information is collected from the content of a {spring-boot-actuator-module-code}/health/ReactiveHealthContributorRegistry.java[`ReactiveHealthContributorRegistry`] (by default all {spring-boot-actuator-module-code}/health/HealthContributor.java[`HealthContributor`] and {spring-boot-actuator-module-code}/health/ReactiveHealthContributor.java[`ReactiveHealthContributor`] instances defined in your `ApplicationContext`).
 Regular `HealthContributors` that do not check against a reactive API are executed on the elastic scheduler.
 
-TIP: In a reactive application, The `ReactiveHealthContributorRegistry` can be used to register and unregister health indicators at runtime.
+TIP: In a reactive application, The `ReactiveHealthContributorRegistry` should be used to register and unregister health indicators at runtime.
+If you need to register a regular `HealthContributor`, you should wrap it using `ReactiveHealthContributor#adapt`.
 
 To provide custom health information from a reactive API, you can register Spring beans that implement the {spring-boot-actuator-module-code}/health/ReactiveHealthIndicator.java[`ReactiveHealthIndicator`] interface.
 The following code shows a sample `ReactiveHealthIndicator` implementation:
@@ -851,7 +867,7 @@ It's also possible to override the `show-details` and `roles` properties if requ
 	management.endpoint.health.group.custom.roles=admin
 	management.endpoint.health.group.custom.status.order=fatal,up
 	management.endpoint.health.group.custom.status.http-mapping.fatal=500
-
+	management.endpoint.health.group.custom.status.http-mapping.out-of-service=500
 ----
 
 TIP: You can use `@Qualifier("groupname")` if you need to register custom `StatusAggregator` or `HttpCodeStatusMapper` beans for use with the group.
@@ -990,6 +1006,8 @@ For example, `health` is exposed as `/actuator/health`.
 
 TIP: Actuator is supported natively with Spring MVC, Spring WebFlux, and Jersey.
 If both Jersey and Spring MVC are available, Spring MVC will be used.
+
+NOTE: Jackson is a required dependency in order to get the correct JSON responses as documented in the API documentation ({spring-boot-actuator-restapi}/html[HTML] or {spring-boot-actuator-restapi}/pdf/spring-boot-actuator-web-api.pdf[PDF]).
 
 
 
@@ -1160,6 +1178,10 @@ For example, with Maven, you would add the following dependency:
 The Jolokia endpoint can then be exposed by adding `jolokia` or `*` to the configprop:management.endpoints.web.exposure.include[] property.
 You can then access it by using `/actuator/jolokia` on your management HTTP server.
 
+NOTE: The Jolokia endpoint exposes Jolokia's servlet as an actuator endpoint.
+As a result, it is specific to servlet environments such as Spring MVC and Jersey.
+The endpoint will not be available in a WebFlux application.
+
 
 
 [[production-ready-customizing-jolokia]]
@@ -1222,7 +1244,7 @@ TIP: To "`reset`" the specific level of the logger (and use the default configur
 
 [[production-ready-metrics]]
 == Metrics
-Spring Boot Actuator provides dependency management and auto-configuration for https://micrometer.io[Micrometer], an application metrics facade that supports numerous monitoring systems, including:
+Spring Boot Actuator provides dependency management and auto-configuration for https://micrometer.io[Micrometer], an application metrics facade that supports {micrometer-docs}[numerous monitoring systems], including:
 
 - <<production-ready-metrics-export-appoptics,AppOptics>>
 - <<production-ready-metrics-export-atlas,Atlas>>
@@ -1287,14 +1309,7 @@ You can apply customizations to particular registry implementations by being mor
 	}
 ----
 
-With that setup in place you can inject `MeterRegistry` in your components and register metrics:
-
-[source,java,indent=0]
-----
-include::{code-examples}/actuate/metrics/SampleBean.java[tag=example]
-----
-
-Spring Boot also <<production-ready-metrics-meter,configures built-in instrumentation>> (i.e. `MeterBinder` implementations) that you can control via configuration or dedicated annotation markers.
+Spring Boot also <<production-ready-metrics-meter,configures built-in instrumentation>> that you can control via configuration or dedicated annotation markers.
 
 
 
@@ -1306,7 +1321,7 @@ Spring Boot also <<production-ready-metrics-meter,configures built-in instrument
 [[production-ready-metrics-export-appoptics]]
 ==== AppOptics
 By default, the AppOptics registry pushes metrics to `https://api.appoptics.com/v1/measurements` periodically.
-To export metrics to SaaS {micrometer-registry-docs}/appoptics[AppOptics], your API token must be provided:
+To export metrics to SaaS {micrometer-registry-docs}/appOptics[AppOptics], your API token must be provided:
 
 [source,properties,indent=0,configprops]
 ----
@@ -1546,7 +1561,7 @@ For advanced configuration, you can also provide your own `PrometheusPushGateway
 
 [[production-ready-metrics-export-signalfx]]
 ==== SignalFx
-SignalFx registry pushes metrics to {micrometer-registry-docs}/signalfx[SignalFx] periodically.
+SignalFx registry pushes metrics to {micrometer-registry-docs}/signalFx[SignalFx] periodically.
 To export metrics to https://www.signalfx.com[SignalFx], your access token must be provided:
 
 [source,properties,indent=0,configprops]
@@ -1581,7 +1596,7 @@ You can also disable it explicitly:
 [[production-ready-metrics-export-statsd]]
 ==== StatsD
 The StatsD registry pushes metrics over UDP to a StatsD agent eagerly.
-By default, metrics are exported to a {micrometer-registry-docs}/statsd[StatsD] agent running on your local machine.
+By default, metrics are exported to a {micrometer-registry-docs}/statsD[StatsD] agent running on your local machine.
 The StatsD agent host and port to use can be provided using:
 
 [source,properties,indent=0,configprops]
@@ -1638,7 +1653,7 @@ Spring Boot registers the following core metrics when applicable:
 ** Number of classes loaded/unloaded
 * CPU metrics
 * File descriptor metrics
-* Kafka consumer metrics
+* Kafka consumer metrics (<<production-ready-jmx,JMX support>> should be enabled)
 * Log4j2 metrics: record the number of events logged to Log4j2 at each level
 * Logback metrics: record the number of events logged to Logback at each level
 * Uptime metrics: report a gauge for uptime and a fixed gauge representing the application's absolute start time
@@ -1842,8 +1857,8 @@ The following cache libraries are supported:
 
 Metrics are tagged by the name of the cache and by the name of the `CacheManager` that is derived from the bean name.
 
-NOTE: Only caches that are available on startup are bound to the registry.
-For caches created on-the-fly or programmatically after the startup phase, an explicit registration is required.
+NOTE: Only caches that are configured on startup are bound to the registry.
+For caches not defined in the cache’s configuration, e.g. caches created on-the-fly or programmatically after the startup phase, an explicit registration is required.
 A `CacheMetricsRegistrar` bean is made available to make that process easier.
 
 
@@ -1894,8 +1909,16 @@ To register custom metrics, inject `MeterRegistry` into your component, as shown
 include::{code-examples}/actuate/metrics/MetricsMeterRegistryInjectionExample.java[tag=component]
 ----
 
-If you find that you repeatedly instrument a suite of metrics across components or applications, you may encapsulate this suite in a `MeterBinder` implementation.
+If you metrics depend on other beans, it is recommend that you use a `MeterBinder` to register them, as shown in the following example:
+
+[source,java,indent=0]
+----
+include::{code-examples}/actuate/metrics/SampleMeterBinderConfiguration.java[tag=example]
+----
+
+Using a `MeterBinder` ensures that the correct dependency relationships are set up and that the bean is available when the metric's value is retrieved.
 By default, metrics from all `MeterBinder` beans will be automatically bound to the Spring-managed `MeterRegistry`.
+A `MeterBinder` implementation can also be useful if you find that you repeatedly instrument a suite of metrics across components or applications..
 
 
 
@@ -1987,7 +2010,7 @@ You can also add any number of `tag=KEY:VALUE` query parameters to the end of th
 ====
 The reported measurements are the _sum_ of the statistics of all meters matching the meter name and any tags that have been applied.
 So in the example above, the returned "Value" statistic is the sum of the maximum memory footprints of "Code Cache", "Compressed Class Space", and "Metaspace" areas of the heap.
-If you just wanted to see the maximum size for the "Metaspace", you could add an additional `tag=id:Metaspace`, i.e. `/actuator/metrics/jvm.memory.max?tag=area:nonheap&tag=id:Metaspace`.
+If you only wanted to see the maximum size for the "Metaspace", you could add an additional `tag=id:Metaspace`, i.e. `/actuator/metrics/jvm.memory.max?tag=area:nonheap&tag=id:Metaspace`.
 ====
 
 

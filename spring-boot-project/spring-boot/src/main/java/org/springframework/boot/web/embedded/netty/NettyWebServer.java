@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Predicate;
 
+import io.netty.channel.unix.Errors.NativeIoException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import reactor.netty.ChannelBindException;
@@ -47,7 +48,12 @@ import org.springframework.util.Assert;
  */
 public class NettyWebServer implements WebServer {
 
-	private static final Predicate<HttpServerRequest> ALWAYS = (r) -> true;
+	/**
+	 * Permission denied error code from {@code errno.h}.
+	 */
+	private static final int ERROR_NO_EACCES = -13;
+
+	private static final Predicate<HttpServerRequest> ALWAYS = (request) -> true;
 
 	private static final Log logger = LogFactory.getLog(NettyWebServer.class);
 
@@ -80,15 +86,27 @@ public class NettyWebServer implements WebServer {
 				this.disposableServer = startHttpServer();
 			}
 			catch (Exception ex) {
-				ChannelBindException bindException = findBindException(ex);
-				if (bindException != null) {
-					throw new PortInUseException(bindException.localPort());
-				}
+				PortInUseException.ifCausedBy(ex, ChannelBindException.class, (bindException) -> {
+					if (!isPermissionDenied(bindException.getCause())) {
+						throw new PortInUseException(bindException.localPort(), ex);
+					}
+				});
 				throw new WebServerException("Unable to start Netty", ex);
 			}
 			logger.info("Netty started on port(s): " + getPort());
 			startDaemonAwaitThread(this.disposableServer);
 		}
+	}
+
+	private boolean isPermissionDenied(Throwable bindExceptionCause) {
+		try {
+			if (bindExceptionCause instanceof NativeIoException) {
+				return ((NativeIoException) bindExceptionCause).expectedErr() == ERROR_NO_EACCES;
+			}
+		}
+		catch (Throwable ex) {
+		}
+		return false;
 	}
 
 	private DisposableServer startHttpServer() {
@@ -110,17 +128,6 @@ public class NettyWebServer implements WebServer {
 			routes = provider.apply(routes);
 		}
 		routes.route(ALWAYS, this.handlerAdapter);
-	}
-
-	private ChannelBindException findBindException(Exception ex) {
-		Throwable candidate = ex;
-		while (candidate != null) {
-			if (candidate instanceof ChannelBindException) {
-				return (ChannelBindException) candidate;
-			}
-			candidate = candidate.getCause();
-		}
-		return null;
 	}
 
 	private void startDaemonAwaitThread(DisposableServer disposableServer) {

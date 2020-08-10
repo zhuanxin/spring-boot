@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,12 +76,11 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
  * @author Andy Wilkinson
  * @author Stephane Nicoll
  * @author Madhura Bhave
+ * @author Scott Frederick
  * @since 1.4.0
  * @see SpringBootTest
  */
 public class SpringBootContextLoader extends AbstractContextLoader {
-
-	private static final String[] NO_ARGS = new String[0];
 
 	@Override
 	public ApplicationContext loadContext(MergedContextConfiguration config) throws Exception {
@@ -148,11 +147,12 @@ public class SpringBootContextLoader extends AbstractContextLoader {
 	 * empty array.
 	 * @param config the source context configuration
 	 * @return the application arguments to use
+	 * @deprecated since 2.2.7
 	 * @see SpringApplication#run(String...)
 	 */
+	@Deprecated
 	protected String[] getArgs(MergedContextConfiguration config) {
-		return MergedAnnotations.from(config.getTestClass(), SearchStrategy.TYPE_HIERARCHY).get(SpringBootTest.class)
-				.getValue("args", String[].class).orElse(NO_ARGS);
+		return SpringBootTestArgs.get(config.getContextCustomizers());
 	}
 
 	private void setActiveProfiles(ConfigurableEnvironment environment, String[] profiles) {

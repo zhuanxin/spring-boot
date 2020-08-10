@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,8 @@ import org.apache.catalina.valves.RemoteIpValve;
 import org.apache.coyote.AbstractProtocol;
 import org.eclipse.jetty.server.HttpChannel;
 import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.util.thread.ThreadPool;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.boot.autoconfigure.web.ServerProperties.Tomcat.Accesslog;
@@ -55,6 +57,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.unit.DataSize;
@@ -131,6 +134,7 @@ class ServerPropertiesTests {
 		map.put("server.tomcat.background-processor-delay", "10");
 		map.put("server.tomcat.relaxed-path-chars", "|,<");
 		map.put("server.tomcat.relaxed-query-chars", "^  ,  | ");
+		map.put("server.tomcat.use-relative-redirects", "true");
 		bind(map);
 		ServerProperties.Tomcat tomcat = this.properties.getTomcat();
 		Accesslog accesslog = tomcat.getAccesslog();
@@ -152,6 +156,7 @@ class ServerPropertiesTests {
 		assertThat(tomcat.getBackgroundProcessorDelay()).isEqualTo(Duration.ofSeconds(10));
 		assertThat(tomcat.getRelaxedPathChars()).containsExactly('|', '<');
 		assertThat(tomcat.getRelaxedQueryChars()).containsExactly('^', '|');
+		assertThat(tomcat.getUseRelativeRedirects()).isTrue();
 	}
 
 	@Test
@@ -345,6 +350,25 @@ class ServerPropertiesTests {
 	void tomcatInternalProxiesMatchesDefault() {
 		assertThat(this.properties.getTomcat().getInternalProxies())
 				.isEqualTo(new RemoteIpValve().getInternalProxies());
+	}
+
+	@Test
+	void tomcatUseRelativeRedirectsDefaultsToFalse() {
+		assertThat(this.properties.getTomcat().getUseRelativeRedirects()).isFalse();
+	}
+
+	@Test
+	void jettyThreadPoolPropertyDefaultsShouldMatchServerDefault() {
+		JettyServletWebServerFactory jettyFactory = new JettyServletWebServerFactory(0);
+		JettyWebServer jetty = (JettyWebServer) jettyFactory.getWebServer();
+		Server server = (Server) ReflectionTestUtils.getField(jetty, "server");
+		ThreadPool threadPool = (ThreadPool) ReflectionTestUtils.getField(server, "_threadPool");
+		int idleTimeout = (int) ReflectionTestUtils.getField(threadPool, "_idleTimeout");
+		int maxThreads = (int) ReflectionTestUtils.getField(threadPool, "_maxThreads");
+		int minThreads = (int) ReflectionTestUtils.getField(threadPool, "_minThreads");
+		assertThat(this.properties.getJetty().getThreadIdleTimeout().toMillis()).isEqualTo(idleTimeout);
+		assertThat(this.properties.getJetty().getMaxThreads()).isEqualTo(maxThreads);
+		assertThat(this.properties.getJetty().getMinThreads()).isEqualTo(minThreads);
 	}
 
 	@Test

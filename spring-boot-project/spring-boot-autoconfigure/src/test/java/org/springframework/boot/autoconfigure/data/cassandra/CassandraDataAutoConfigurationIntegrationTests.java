@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ class CassandraDataAutoConfigurationIntegrationTests {
 
 	@Container
 	static final CassandraContainer<?> cassandra = new CassandraContainer<>().withStartupAttempts(5)
-			.withStartupTimeout(Duration.ofMinutes(2));
+			.withStartupTimeout(Duration.ofMinutes(10));
 
 	private AnnotationConfigApplicationContext context;
 
@@ -56,7 +56,8 @@ class CassandraDataAutoConfigurationIntegrationTests {
 	void setUp() {
 		this.context = new AnnotationConfigApplicationContext();
 		TestPropertyValues
-				.of("spring.data.cassandra.port=" + cassandra.getFirstMappedPort(),
+				.of("spring.data.cassandra.contact-points=" + cassandra.getContainerIpAddress(),
+						"spring.data.cassandra.port=" + cassandra.getFirstMappedPort(),
 						"spring.data.cassandra.read-timeout=24000", "spring.data.cassandra.connect-timeout=10000")
 				.applyTo(this.context.getEnvironment());
 	}

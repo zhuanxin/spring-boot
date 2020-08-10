@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -189,7 +189,7 @@ public class RabbitProperties {
 	private List<Address> parseAddresses(String addresses) {
 		List<Address> parsedAddresses = new ArrayList<>();
 		for (String address : StringUtils.commaDelimitedListToStringArray(addresses)) {
-			parsedAddresses.add(new Address(address));
+			parsedAddresses.add(new Address(address, getSsl().isEnabled()));
 		}
 		return parsedAddresses;
 	}
@@ -275,8 +275,9 @@ public class RabbitProperties {
 		this.requestedHeartbeat = requestedHeartbeat;
 	}
 
-	@DeprecatedConfigurationProperty(reason = "replaced to support additional confirm types",
+	@DeprecatedConfigurationProperty(reason = "Replaced to support additional confirm types.",
 			replacement = "spring.rabbitmq.publisher-confirm-type")
+	@Deprecated
 	public boolean isPublisherConfirms() {
 		return ConfirmType.CORRELATED.equals(this.publisherConfirmType);
 	}
@@ -390,7 +391,7 @@ public class RabbitProperties {
 				return isEnabled();
 			}
 			Address address = RabbitProperties.this.parsedAddresses.get(0);
-			return address.secureConnection;
+			return address.determineSslEnabled(isEnabled());
 		}
 
 		public void setEnabled(boolean enabled) {
@@ -989,14 +990,14 @@ public class RabbitProperties {
 
 		private String virtualHost;
 
-		private boolean secureConnection;
+		private Boolean secureConnection;
 
-		private Address(String input) {
+		private Address(String input, boolean sslEnabled) {
 			input = input.trim();
 			input = trimPrefix(input);
 			input = parseUsernameAndPassword(input);
 			input = parseVirtualHost(input);
-			parseHostAndPort(input);
+			parseHostAndPort(input, sslEnabled);
 		}
 
 		private String trimPrefix(String input) {
@@ -1005,7 +1006,8 @@ public class RabbitProperties {
 				return input.substring(PREFIX_AMQP_SECURE.length());
 			}
 			if (input.startsWith(PREFIX_AMQP)) {
-				input = input.substring(PREFIX_AMQP.length());
+				this.secureConnection = false;
+				return input.substring(PREFIX_AMQP.length());
 			}
 			return input;
 		}
@@ -1036,16 +1038,20 @@ public class RabbitProperties {
 			return input;
 		}
 
-		private void parseHostAndPort(String input) {
+		private void parseHostAndPort(String input, boolean sslEnabled) {
 			int portIndex = input.indexOf(':');
 			if (portIndex == -1) {
 				this.host = input;
-				this.port = (this.secureConnection) ? DEFAULT_PORT_SECURE : DEFAULT_PORT;
+				this.port = (determineSslEnabled(sslEnabled)) ? DEFAULT_PORT_SECURE : DEFAULT_PORT;
 			}
 			else {
 				this.host = input.substring(0, portIndex);
 				this.port = Integer.valueOf(input.substring(portIndex + 1));
 			}
+		}
+
+		private boolean determineSslEnabled(boolean sslEnabled) {
+			return (this.secureConnection != null) ? this.secureConnection : sslEnabled;
 		}
 
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,8 +71,9 @@ import org.springframework.util.StringUtils;
  * <p>
  * To protect sensitive information from being exposed, certain property values are masked
  * if their names end with a set of configurable values (default "password" and "secret").
- * Configure property names by using {@code endpoints.configprops.keys_to_sanitize} in
- * your Spring Boot application configuration.
+ * Configure property names by using
+ * {@code management.endpoint.configprops.keys-to-sanitize} in your Spring Boot
+ * application configuration.
  *
  * @author Christian Dupuis
  * @author Dave Syer
@@ -310,7 +311,8 @@ public class ConfigurationPropertiesReportEndpoint implements ApplicationContext
 		public List<BeanPropertyWriter> changeProperties(SerializationConfig config, BeanDescription beanDesc,
 				List<BeanPropertyWriter> beanProperties) {
 			List<BeanPropertyWriter> result = new ArrayList<>();
-			Constructor<?> bindConstructor = findBindConstructor(beanDesc.getType().getRawClass());
+			Class<?> beanClass = beanDesc.getType().getRawClass();
+			Constructor<?> bindConstructor = findBindConstructor(ClassUtils.getUserClass(beanClass));
 			for (BeanPropertyWriter writer : beanProperties) {
 				if (isCandidate(beanDesc, writer, bindConstructor)) {
 					result.add(writer);
